@@ -1,0 +1,24 @@
+version: 1
+repository:
+  enable_merge_commit: true
+  delete_branch_on_merge: true
+  issues: true
+  discussions: true
+security:
+  dependabot_alerts: true
+  dependabot_security_updates: true
+  secret_scanning: true
+  push_protection: true
+  private_vulnerability_reporting: true
+branch:
+  target: default
+  block_force_pushes: true
+  block_deletion: true
+  require_pull_request: true
+  approvals: 1
+actions:
+  default_workflow_permissions: read
+  external_contributor_approval: all_external_contributors
+files:
+  pull_request_template: true
+  issue_template: true
