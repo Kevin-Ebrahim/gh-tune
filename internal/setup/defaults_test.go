@@ -189,7 +189,7 @@ func TestPrivatePersonalCreationDefaults(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, j := range defaultSecurity(s, r) {
-		if strings.HasPrefix(j.name, "secret_scanning") {
+		if j.name == "Secret scanning" || j.name == "Push protection" {
 			t.Fatal("unexpected licensed feature", j.name)
 		}
 		if j.name == "private vulnerability reporting" && inspect(j, s).state != "N/A" {

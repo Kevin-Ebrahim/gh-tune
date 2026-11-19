@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -183,10 +182,9 @@ func TestFilePRRecoversAndConverges(t *testing.T) {
 		}
 	})
 	first := plan(t, c, p)
-	var preview bytes.Buffer
-	first.Print(&preview)
-	if !strings.Contains(preview.String(), "+ ## What changed?") || len(writes) > 0 {
-		t.Fatal(preview.String())
+	preview := first.Results()[0].Detail
+	if !strings.Contains(preview, "+ ## What changed?") || len(writes) > 0 {
+		t.Fatal(preview)
 	}
 	if first.Apply(t.Context(), c).Exit(false) != 1 {
 		t.Fatal("expected interrupted PR creation")
@@ -310,5 +308,31 @@ func TestBranchCreatesOnlyMissingRules(t *testing.T) {
 	}
 	if writes != 1 {
 		t.Fatal(writes)
+	}
+}
+
+func TestValuesInDefaultReport(t *testing.T) {
+	p := profile.Profile{}
+	p.Repository.MergeMethods = []string{"merge", "squash", "rebase"}
+	p.Repository.Wiki = new(true)
+	p.Actions.DefaultPermissions = "read"
+	p.Actions.Approval = "first_time_contributors"
+	c := server(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			fmt.Fprint(w, `{"visibility":"public","allow_merge_commit":true,"allow_squash_merge":true,"allow_rebase_merge":true,"has_wiki":false}`)
+		case "/actions/permissions/workflow":
+			fmt.Fprint(w, `{"default_workflow_permissions":"read"}`)
+		case "/actions/permissions/fork-pr-contributor-approval":
+			fmt.Fprint(w, `{"approval_policy":"first_time_contributors"}`)
+		default:
+			t.Error(r.URL.Path)
+			http.NotFound(w, r)
+		}
+	})
+	rows := plan(t, c, p).Results()
+	want := []Result{{"MATCH", "Merge methods", "Merge commits, Squash, Rebase"}, {"CHANGE", "Wiki", "Disabled → Enabled"}, {"MATCH", "workflow token permissions", "Read only"}, {"MATCH", "external contributor approval", "First-time contributors"}}
+	if !slices.Equal(rows, want) {
+		t.Fatal(rows)
 	}
 }

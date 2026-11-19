@@ -36,7 +36,7 @@ func creationDefaults(s *github.Snapshot, r repositoryContext, target string) []
 	return append(jobs, removeManagedRuleset(target))
 }
 func defaultWiki(r repositoryContext) job {
-	return setting("has_wiki", func(s *github.Snapshot) (entry, error) {
+	return setting("Wiki", func(s *github.Snapshot) (entry, error) {
 		want := true
 		if r.Visibility != "public" && !r.Wiki {
 			// A disabled wiki alone does not distinguish GitHub Free from a paid plan.
@@ -56,7 +56,7 @@ func defaultWiki(r repositoryContext) job {
 			}
 			want = account.Plan.Name != "free"
 		}
-		return projection("has_wiki", "", "PATCH", object{"has_wiki": want}).inspect(s)
+		return projection("Wiki", "", "PATCH", object{"has_wiki": want}).inspect(s)
 	})
 }
 func defaultSecurity(s *github.Snapshot, r repositoryContext) []job {

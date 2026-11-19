@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"strings"
 
 	"github.com/Kevin-Ebrahim/gh-tune/internal/github"
 	"github.com/Kevin-Ebrahim/gh-tune/internal/profile"
@@ -68,10 +66,16 @@ func Build(ctx context.Context, c *github.Client, p profile.Profile) (Plan, erro
 	}
 	return plan, nil
 }
-func (p Plan) Print(w io.Writer) {
+
+// Result is the observed or proposed state of one setting in a report.
+type Result struct{ Status, Setting, Detail string }
+
+func (p Plan) Results() []Result {
+	rows := make([]Result, 0, len(p.items))
 	for _, i := range p.items {
-		fmt.Fprintf(w, "%-9s %-35s %s\n", i.state, i.name, i.detail)
+		rows = append(rows, Result{i.state, i.name, i.detail})
 	}
+	return rows
 }
 func (p Plan) Exit(check bool) int {
 	code := 0
@@ -136,9 +140,6 @@ func change(detail, method, path string, body any) entry {
 	return entry{"CHANGE", detail, method + " " + path + " " + string(b), func(ctx context.Context, c *github.Client) error { return c.Write(ctx, method, path, body, nil) }}
 }
 func encode(v any) string { b, _ := json.Marshal(v); return string(b) }
-func diff(label string, before, after any) string {
-	return fmt.Sprintf("%s %s → %s", label, encode(before), encode(after))
-}
 func field(m object, key string) (any, error) {
 	v, ok := m[key]
 	if !ok || v == nil {
@@ -161,19 +162,20 @@ func projection(name, endpoint, method string, wanted object, keep ...string) jo
 			return entry{}, err
 		}
 		body := object{}
-		var changes []string
+		before := object{}
 		for _, key := range sortedKeys(wanted) {
 			old, err := field(m, key)
 			if err != nil {
 				return entry{}, err
 			}
+			before[key] = old
 			if encode(old) != encode(wanted[key]) {
 				body[key] = wanted[key]
-				changes = append(changes, diff(key, old, wanted[key]))
 			}
 		}
-		if len(changes) == 0 {
-			return match("as requested"), nil
+		desired := describeSettings(wanted)
+		if len(body) == 0 {
+			return match(desired), nil
 		}
 		for _, key := range keep {
 			if _, ok := body[key]; !ok {
@@ -184,6 +186,8 @@ func projection(name, endpoint, method string, wanted object, keep ...string) jo
 				body[key] = v
 			}
 		}
-		return change(strings.Join(changes, ", "), method, endpoint, body), nil
+		e := change(describeSettings(before)+" → "+desired, method, endpoint, body)
+		e.guard += encode(before)
+		return e, nil
 	})
 }

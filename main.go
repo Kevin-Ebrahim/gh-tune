@@ -13,6 +13,7 @@ import (
 	"github.com/Kevin-Ebrahim/gh-tune/internal/github"
 	"github.com/Kevin-Ebrahim/gh-tune/internal/profile"
 	"github.com/Kevin-Ebrahim/gh-tune/internal/setup"
+	"github.com/Kevin-Ebrahim/gh-tune/internal/terminal"
 )
 
 const usage = `Usage: gh tune OWNER/REPO --profile NAME|FILE [--dry-run | --apply | --check]
@@ -76,19 +77,26 @@ func run(ctx context.Context, args []string, out, errs io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	display := terminal.New(out)
+	modeName := map[string]string{"--dry-run": "Dry run", "--check": "Check", "--apply": "Apply"}[mode]
+	display.Header(repo, name, modeName)
+	stop := display.Loading(ctx, "Reading repository settings")
 	c, err := github.New(repo)
 	if err != nil {
+		stop()
 		return fail(err)
 	}
 	plan, err := setup.Build(ctx, c, p)
+	stop()
 	if err != nil {
 		return fail(err)
 	}
-	fmt.Fprintf(out, "%s  profile %s  %s\n", repo, name, strings.TrimPrefix(mode, "--"))
 	if mode == "--apply" {
+		stop = display.Loading(ctx, "Applying and verifying settings")
 		plan = plan.Apply(ctx, c)
+		stop()
 	}
-	plan.Print(out)
+	display.Report(plan.Results(), modeName)
 	return plan.Exit(mode == "--check")
 }
 func main() {

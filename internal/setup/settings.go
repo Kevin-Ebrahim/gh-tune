@@ -1,7 +1,6 @@
 package setup
 
 import (
-	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -31,14 +30,14 @@ func settings(p profile.Profile) []job {
 		methods["allow_merge_commit"] = *r.EnableMergeCommit
 	}
 	if len(methods) > 0 {
-		jobs = append(jobs, projection("merge methods", "", "PATCH", methods))
+		jobs = append(jobs, projection("Merge methods", "", "PATCH", methods))
 	}
 	for _, f := range []struct {
-		k string
-		v *bool
-	}{{"delete_branch_on_merge", r.DeleteBranchOnMerge}, {"has_issues", r.Issues}, {"has_wiki", r.Wiki}, {"has_discussions", r.Discussions}} {
+		label, key string
+		v          *bool
+	}{{"Delete branches after merge", "delete_branch_on_merge", r.DeleteBranchOnMerge}, {"Issues", "has_issues", r.Issues}, {"Wiki", "has_wiki", r.Wiki}, {"Discussions", "has_discussions", r.Discussions}} {
 		if f.v != nil {
-			jobs = append(jobs, projection(f.k, "", "PATCH", object{f.k: *f.v}))
+			jobs = append(jobs, projection(f.label, "", "PATCH", object{f.key: *f.v}))
 		}
 	}
 	s := p.Security
@@ -46,8 +45,8 @@ func settings(p profile.Profile) []job {
 		func(v bool) job { return securityToggle("Dependabot alerts", "/vulnerability-alerts", v) },
 		func(v bool) job { return securityToggle("Dependabot security updates", "/automated-security-fixes", v) })...)
 	jobs = append(jobs, securityPair(s.SecretScanning, s.PushProtection,
-		func(v bool) job { return scanning("secret_scanning", v) },
-		func(v bool) job { return scanning("secret_scanning_push_protection", v) })...)
+		func(v bool) job { return scanning("Secret scanning", "secret_scanning", v) },
+		func(v bool) job { return scanning("Push protection", "secret_scanning_push_protection", v) })...)
 	if s.PrivateReporting != nil {
 		j := securityToggle("private vulnerability reporting", "/private-vulnerability-reporting", *s.PrivateReporting)
 		jobs = append(jobs, publicOnly(j))
@@ -142,17 +141,17 @@ func securityToggle(name, path string, want bool) job {
 			if state.Paused && want {
 				return blocked("enabled but paused by GitHub; inspect Dependabot activity"), nil
 			}
-			return match(fmt.Sprint(enabled)), nil
+			return match(onOff(enabled)), nil
 		}
 		method := "DELETE"
 		if want {
 			method = "PUT"
 		}
-		return change(diff("enabled", enabled, want), method, path, nil), nil
+		return change(onOff(enabled)+" → "+onOff(want), method, path, nil), nil
 	})
 }
-func scanning(key string, want bool) job {
-	return setting(key, func(s *github.Snapshot) (entry, error) {
+func scanning(label, key string, want bool) job {
+	return setting(label, func(s *github.Snapshot) (entry, error) {
 		var repo struct {
 			Security map[string]struct{ Status string } `json:"security_and_analysis"`
 		}
@@ -168,9 +167,9 @@ func scanning(key string, want bool) job {
 			status = "enabled"
 		}
 		if old == status {
-			return match(old), nil
+			return match(onOff(want)), nil
 		}
-		return change(diff("status", old, status), "PATCH", "", object{"security_and_analysis": object{key: object{"status": status}}}), nil
+		return change(onOff(old == "enabled")+" → "+onOff(want), "PATCH", "", object{"security_and_analysis": object{key: object{"status": status}}}), nil
 	})
 }
 func selected(want profile.Selected) job {
@@ -186,7 +185,7 @@ func selected(want profile.Selected) job {
 			return entry{}, err
 		}
 		if parent["allowed_actions"] != "selected" {
-			return entry{state: "AFTER", detail: "after enabling selected actions, set " + encode(want)}, nil
+			return entry{state: "AFTER", detail: "Set the allowlist after selecting actions: " + describeAllowlist(want)}, nil
 		}
 		var old profile.Selected
 		path := "/actions/permissions/selected-actions"
@@ -198,10 +197,81 @@ func selected(want profile.Selected) job {
 			old.Patterns = []string{}
 		}
 		if encode(old) == encode(want) {
-			return match("as requested"), nil
+			return match(describeAllowlist(old)), nil
 		}
-		return change(strings.TrimSpace(diff("allowlist", old, want)), "PUT", path, want), nil
+		e := change(describeAllowlist(old)+" → "+describeAllowlist(want), "PUT", path, want)
+		e.guard += encode(old)
+		return e, nil
 	})
 	j.after = "allowed actions"
 	return j
+}
+
+func onOff(enabled bool) string {
+	if enabled {
+		return "Enabled"
+	}
+	return "Disabled"
+}
+
+func describeSettings(values object) string {
+	// Only describe the merge methods managed by this profile.
+	methods := []string{}
+	for _, m := range []struct{ field, label string }{{"allow_merge_commit", "Merge commits"}, {"allow_squash_merge", "Squash"}, {"allow_rebase_merge", "Rebase"}} {
+		if value, ok := values[m.field].(bool); ok {
+			if len(values) == 1 {
+				return m.label + " " + strings.ToLower(onOff(value))
+			}
+			if value {
+				methods = append(methods, m.label)
+			}
+		}
+	}
+	if len(methods) > 0 {
+		return strings.Join(methods, ", ")
+	}
+	if len(values) > 1 {
+		return "None enabled"
+	}
+	for _, v := range values {
+		switch v := v.(type) {
+		case bool:
+			return onOff(v)
+		case string:
+			switch v {
+			case "read":
+				return "Read only"
+			case "write":
+				return "Read and write"
+			case "all":
+				return "All actions"
+			case "local_only":
+				return "Local actions only"
+			case "selected":
+				return "Selected actions"
+			case "all_external_contributors":
+				return "All external contributors"
+			case "first_time_contributors":
+				return "First-time contributors"
+			case "first_time_contributors_new_to_github":
+				return "First-time contributors new to GitHub"
+			}
+			return v
+		}
+	}
+	return encode(values)
+}
+func describeAllowlist(a profile.Selected) string {
+	var allowed []string
+	if a.GithubOwned {
+		allowed = append(allowed, "GitHub-owned actions")
+	}
+	if a.Verified {
+		allowed = append(allowed, "verified creators")
+	}
+	allowed = append(allowed, a.Patterns...)
+	if len(allowed) == 0 {
+		return "No additional actions"
+	}
+	return strings.Join(allowed, ", ")
 }

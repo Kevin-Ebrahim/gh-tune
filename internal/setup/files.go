@@ -253,9 +253,9 @@ func fileProposal(s *github.Snapshot, repo, base, parent, tree string, files map
 	fmt.Fprintf(&detail, "open a PR against %s", base)
 	var entries []object
 	for _, name := range sortedKeys(files) {
-		fmt.Fprintf(&detail, "\n          + %s\n", name)
+		fmt.Fprintf(&detail, "\n+ %s\n", name)
 		for _, line := range strings.Split(strings.TrimSuffix(files[name], "\n"), "\n") {
-			fmt.Fprintf(&detail, "            + %s\n", line)
+			fmt.Fprintf(&detail, "  + %s\n", line)
 		}
 		entries = append(entries, object{"path": name, "mode": "100644", "type": "blob", "content": files[name]})
 	}

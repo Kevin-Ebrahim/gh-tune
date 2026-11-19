@@ -76,6 +76,8 @@ A second apply reuses a matching open PR. After a merge, check reads the files o
 | 1 | Invalid input, incomplete assessment, permission or plan restriction, or failed operation |
 | 2 | Check found drift or a file PR awaiting merge |
 
+The report names the target profile and groups results by outcome. Changed settings show the current and desired values. In a terminal, a spinner runs while gh-tune reads or applies settings. Set `GH_SPINNER_DISABLED=1` for a static progress message or `NO_COLOR=1` for plain text. Piped output omits animation and color.
+
 Independent changes can succeed during a partially blocked apply. Read the per-setting results and rerun after resolving the blocker. Public-only settings appear as N/A on private repositories. A blocked requirement takes precedence over drift in the exit code.
 
 ## Authentication and releases

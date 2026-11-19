@@ -30,7 +30,10 @@ func (m *minimum) add(r rule) {
 		m.force = true
 	case "pull_request":
 		m.pr = true
-		if n, ok := r.Parameters["required_approving_review_count"].(float64); ok {
+		switch n := r.Parameters["required_approving_review_count"].(type) {
+		case int:
+			m.approvals = max(m.approvals, n)
+		case float64:
 			m.approvals = max(m.approvals, int(n))
 		}
 	}
@@ -55,7 +58,7 @@ func branchJob(b profile.Branch) job {
 	}
 	return setting("default branch protection", func(s *github.Snapshot) (entry, error) {
 		if want == (minimum{}) {
-			return match("no minimum requested"), nil
+			return match("No protections required by this profile"), nil
 		}
 		var repo struct {
 			Default string `json:"default_branch"`
@@ -83,7 +86,7 @@ func branchJob(b profile.Branch) job {
 			actual.add(r)
 		}
 		if len(actual.missing(want)) == 0 {
-			return match("active rules meet the minimum"), nil
+			return match(actual.description()), nil
 		}
 		var classic struct {
 			Reviews *struct {
@@ -105,7 +108,7 @@ func branchJob(b profile.Branch) job {
 		}
 		missing := actual.missing(want)
 		if len(missing) == 0 {
-			return match("existing protection meets the minimum"), nil
+			return match(actual.description()), nil
 		}
 		return planRuleset(s, missing)
 	})
@@ -116,13 +119,9 @@ func planRuleset(s *github.Snapshot, missing []rule) (entry, error) {
 		return entry{}, err
 	}
 	conditions := defaultBranchCondition()
-	labels := []string{}
+	var additions minimum
 	for _, r := range missing {
-		label := r.Type
-		if r.Type == "pull_request" {
-			label += fmt.Sprintf(" (%v approvals)", r.Parameters["required_approving_review_count"])
-		}
-		labels = append(labels, label)
+		additions.add(r)
 	}
 	path := "/rulesets"
 	method := "POST"
@@ -161,7 +160,7 @@ func planRuleset(s *github.Snapshot, missing []rule) (entry, error) {
 		}
 	}
 	body := object{"name": rulesetName, "target": "branch", "enforcement": "active", "conditions": conditions, "rules": rules}
-	return change("require "+strings.Join(labels, ", "), method, path, body), nil
+	return change("Add rules · "+additions.description(), method, path, body), nil
 }
 
 func managedRulesetID(s *github.Snapshot) (int, error) {
@@ -199,7 +198,7 @@ func removeManagedRuleset(repo string) job {
 			return entry{}, err
 		}
 		if id == 0 {
-			return match("no gh-tune ruleset"), nil
+			return match("Absent"), nil
 		}
 		path := fmt.Sprintf("/rulesets/%d", id)
 		var rs struct {
@@ -215,18 +214,14 @@ func removeManagedRuleset(repo string) job {
 		if rs.SourceType != "Repository" || !strings.EqualFold(rs.Source, repo) || rs.Name != rulesetName || rs.Target != "branch" || rs.Enforcement != "active" || encode(rs.Conditions) != encode(defaultBranchCondition()) || rs.Bypass == nil || len(*rs.Bypass) != 0 || len(rs.Rules) == 0 {
 			return blocked("reserved ruleset has customized or unreadable settings; review it on GitHub"), nil
 		}
-		var labels []string
+		var removed minimum
 		for _, r := range rs.Rules {
 			if !generatedRule(r) {
 				return blocked("reserved ruleset contains custom protection; review it on GitHub"), nil
 			}
-			label := r.Type
-			if r.Type == "pull_request" {
-				label += fmt.Sprintf(" (%v approvals)", r.Parameters["required_approving_review_count"])
-			}
-			labels = append(labels, label)
+			removed.add(r)
 		}
-		e := change(fmt.Sprintf("remove %q (#%d): %s", rulesetName, id, strings.Join(labels, ", ")), "DELETE", path, nil)
+		e := change(fmt.Sprintf("Remove #%d (%s)", id, removed.description()), "DELETE", path, nil)
 		e.guard += encode(rs.Rules)
 		return e, nil
 	})
@@ -281,4 +276,26 @@ func generatedRule(r rule) bool {
 	default:
 		return false
 	}
+}
+
+func (m minimum) description() string {
+	var parts []string
+	switch {
+	case m.force && m.deletion:
+		parts = append(parts, "force-push and deletion protection")
+	case m.force:
+		parts = append(parts, "force-push protection")
+	case m.deletion:
+		parts = append(parts, "branch deletion protection")
+	}
+	if m.pr {
+		review := "required pull requests"
+		if m.approvals == 1 {
+			review += " with 1 approval"
+		} else if m.approvals > 1 {
+			review += fmt.Sprintf(" with %d approvals", m.approvals)
+		}
+		parts = append(parts, review)
+	}
+	return strings.Join(parts, ", ")
 }
