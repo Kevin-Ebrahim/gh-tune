@@ -44,7 +44,7 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("%s %s: HTTP %d: %s", e.Method, e.Path, e.Status, e.Message)
 }
 func Status(err error, code int) bool { var e *Error; return errors.As(err, &e) && e.Status == code }
-func (c *Client) request(ctx context.Context, method, path string, body any) ([]byte, error) {
+func (c *Client) request(ctx context.Context, method, base, path string, body any) ([]byte, error) {
 	if c.stopped != nil {
 		return nil, c.stopped
 	}
@@ -56,7 +56,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 		}
 		rd = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.Base+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rd)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any) ([]
 	return raw, nil
 }
 func (c *Client) Write(ctx context.Context, method, path string, body, out any) error {
-	raw, err := c.request(ctx, method, path, body)
+	raw, err := c.request(ctx, method, c.Base, path, body)
 	if err != nil {
 		return err
 	}
@@ -111,10 +111,19 @@ func (c *Client) Snapshot(ctx context.Context) *Snapshot {
 	return &Snapshot{ctx: ctx, c: c, cache: map[string]response{}}
 }
 func (s *Snapshot) Get(path string, out any) error {
-	r, ok := s.cache[path]
+	return s.read(s.c.Base, path, out)
+}
+
+// GetOwnerDefaults reads account or organization policy from the same GitHub API origin.
+func (s *Snapshot) GetOwnerDefaults(path string, out any) error {
+	return s.read(strings.TrimSuffix(s.c.Base, "/repos/"+s.c.Repo), path, out)
+}
+func (s *Snapshot) read(base, path string, out any) error {
+	key := base + path
+	r, ok := s.cache[key]
 	if !ok {
-		r.raw, r.err = s.c.request(s.ctx, "GET", path, nil)
-		s.cache[path] = r
+		r.raw, r.err = s.c.request(s.ctx, "GET", base, path, nil)
+		s.cache[key] = r
 	}
 	if r.err != nil {
 		return r.err

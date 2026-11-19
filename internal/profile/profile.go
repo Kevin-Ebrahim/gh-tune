@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -18,6 +19,7 @@ var profiles embed.FS
 
 type Profile struct {
 	Version    int
+	Baseline   string
 	Repository struct {
 		EnableMergeCommit         *bool    `yaml:"enable_merge_commit"`
 		MergeMethods              []string `yaml:"merge_methods"`
@@ -65,7 +67,7 @@ func Load(name string) (Profile, error) {
 	var b []byte
 	var err error
 	switch name {
-	case "solo", "team", "opensource":
+	case "default", "solo", "team", "opensource":
 		b, err = profiles.ReadFile("profiles/" + name + ".yaml")
 	default:
 		b, err = os.ReadFile(name)
@@ -90,6 +92,9 @@ func parse(b []byte) (Profile, error) {
 func (p Profile) validate() error {
 	if p.Version != 1 {
 		return fmt.Errorf("expected profile version 1")
+	}
+	if p.Baseline != "" && (p.Baseline != "github" || !reflect.DeepEqual(p, Profile{Version: 1, Baseline: "github"})) {
+		return fmt.Errorf("baseline: github is a standalone profile")
 	}
 	r := p.Repository
 	if r.MergeMethods != nil {

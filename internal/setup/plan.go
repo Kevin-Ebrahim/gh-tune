@@ -45,7 +45,7 @@ func inspect(j job, s *github.Snapshot) entry {
 }
 func Build(ctx context.Context, c *github.Client, p profile.Profile) (Plan, error) {
 	s := c.Snapshot(ctx)
-	var repo struct{ Archived, Disabled bool }
+	var repo repositoryContext
 	if err := s.Get("", &repo); err != nil {
 		return Plan{}, err
 	}
@@ -53,6 +53,9 @@ func Build(ctx context.Context, c *github.Client, p profile.Profile) (Plan, erro
 		return Plan{}, fmt.Errorf("repository is archived or disabled")
 	}
 	jobs := settings(p)
+	if p.Baseline == "github" {
+		jobs = creationDefaults(s, repo, c.Repo)
+	}
 	if p.Branch != nil {
 		jobs = append(jobs, branchJob(*p.Branch))
 	}
@@ -130,7 +133,7 @@ func applyChange(ctx context.Context, c *github.Client, i item) entry {
 }
 func change(detail, method, path string, body any) entry {
 	b, _ := json.Marshal(body)
-	return entry{"CHANGE", detail, string(b), func(ctx context.Context, c *github.Client) error { return c.Write(ctx, method, path, body, nil) }}
+	return entry{"CHANGE", detail, method + " " + path + " " + string(b), func(ctx context.Context, c *github.Client) error { return c.Write(ctx, method, path, body, nil) }}
 }
 func encode(v any) string { b, _ := json.Marshal(v); return string(b) }
 func diff(label string, before, after any) string {

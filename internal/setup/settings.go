@@ -42,26 +42,12 @@ func settings(p profile.Profile) []job {
 		}
 	}
 	s := p.Security
-	if s.DependabotAlerts != nil {
-		jobs = append(jobs, securityToggle("Dependabot alerts", "/vulnerability-alerts", *s.DependabotAlerts))
-	}
-	if s.DependabotUpdates != nil {
-		j := securityToggle("Dependabot security updates", "/automated-security-fixes", *s.DependabotUpdates)
-		if s.DependabotAlerts != nil && *s.DependabotUpdates {
-			j.after = "Dependabot alerts"
-		}
-		jobs = append(jobs, j)
-	}
-	if s.SecretScanning != nil {
-		jobs = append(jobs, scanning("secret_scanning", *s.SecretScanning))
-	}
-	if s.PushProtection != nil {
-		j := scanning("secret_scanning_push_protection", *s.PushProtection)
-		if s.SecretScanning != nil && *s.PushProtection {
-			j.after = "secret_scanning"
-		}
-		jobs = append(jobs, j)
-	}
+	jobs = append(jobs, securityPair(s.DependabotAlerts, s.DependabotUpdates,
+		func(v bool) job { return securityToggle("Dependabot alerts", "/vulnerability-alerts", v) },
+		func(v bool) job { return securityToggle("Dependabot security updates", "/automated-security-fixes", v) })...)
+	jobs = append(jobs, securityPair(s.SecretScanning, s.PushProtection,
+		func(v bool) job { return scanning("secret_scanning", v) },
+		func(v bool) job { return scanning("secret_scanning_push_protection", v) })...)
 	if s.PrivateReporting != nil {
 		j := securityToggle("private vulnerability reporting", "/private-vulnerability-reporting", *s.PrivateReporting)
 		jobs = append(jobs, publicOnly(j))
@@ -80,6 +66,28 @@ func settings(p profile.Profile) []job {
 		jobs = append(jobs, publicOnly(projection("external contributor approval", "/actions/permissions/fork-pr-contributor-approval", "PUT", object{"approval_policy": a.Approval})))
 	}
 	return jobs
+}
+
+// Enable a prerequisite first; disable its dependent first when resetting both.
+func securityPair(parent, child *bool, parentJob, childJob func(bool) job) []job {
+	if parent == nil && child == nil {
+		return nil
+	}
+	if parent == nil {
+		return []job{childJob(*child)}
+	}
+	if child == nil {
+		return []job{parentJob(*parent)}
+	}
+	p, c := parentJob(*parent), childJob(*child)
+	if !*parent && !*child {
+		p.after = c.name
+		return []job{c, p}
+	}
+	if *child {
+		c.after = p.name
+	}
+	return []job{p, c}
 }
 func publicOnly(j job) job {
 	base := j.inspect

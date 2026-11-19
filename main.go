@@ -17,7 +17,7 @@ import (
 
 const usage = `Usage: gh tune OWNER/REPO --profile NAME|FILE [--dry-run | --apply | --check]
 
-Profiles: solo, team, opensource, or a local YAML file.
+Profiles: default, solo, team, opensource, or a local YAML file.
   --dry-run   Preview the changes (default).
   --apply     Apply settings, verify results, and propose missing files in a PR.
   --check     Exit 0 when settings match, 2 for drift, 1 for incomplete checks.

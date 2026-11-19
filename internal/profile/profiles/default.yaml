@@ -1,0 +1,3 @@
+version: 1
+# Resolve creation defaults for the repository owner and visibility at runtime.
+baseline: github

@@ -111,28 +111,11 @@ func branchJob(b profile.Branch) job {
 	})
 }
 func planRuleset(s *github.Snapshot, missing []rule) (entry, error) {
-	var id int
-	for page := 1; ; page++ {
-		var sets []struct {
-			ID   int
-			Name string
-		}
-		if err := s.Get(fmt.Sprintf("/rulesets?includes_parents=false&per_page=100&page=%d", page), &sets); err != nil {
-			return entry{}, err
-		}
-		for _, rs := range sets {
-			if rs.Name == rulesetName {
-				if id != 0 {
-					return blocked("multiple rulesets named " + rulesetName), nil
-				}
-				id = rs.ID
-			}
-		}
-		if len(sets) < 100 {
-			break
-		}
+	id, err := managedRulesetID(s)
+	if err != nil {
+		return entry{}, err
 	}
-	conditions := object{"ref_name": object{"include": []string{"~DEFAULT_BRANCH"}, "exclude": []string{}}}
+	conditions := defaultBranchCondition()
 	labels := []string{}
 	for _, r := range missing {
 		label := r.Type
@@ -179,4 +162,123 @@ func planRuleset(s *github.Snapshot, missing []rule) (entry, error) {
 	}
 	body := object{"name": rulesetName, "target": "branch", "enforcement": "active", "conditions": conditions, "rules": rules}
 	return change("require "+strings.Join(labels, ", "), method, path, body), nil
+}
+
+func managedRulesetID(s *github.Snapshot) (int, error) {
+	var id int
+	for page := 1; ; page++ {
+		var sets []struct {
+			ID   int
+			Name string
+		}
+		if err := s.Get(fmt.Sprintf("/rulesets?includes_parents=false&per_page=100&page=%d", page), &sets); err != nil {
+			return 0, err
+		}
+		for _, rs := range sets {
+			if rs.Name == rulesetName {
+				if id != 0 {
+					return 0, fmt.Errorf("multiple rulesets named %s", rulesetName)
+				}
+				id = rs.ID
+			}
+		}
+		if len(sets) < 100 {
+			break
+		}
+	}
+	return id, nil
+}
+func defaultBranchCondition() object {
+	return object{"ref_name": object{"include": []string{"~DEFAULT_BRANCH"}, "exclude": []string{}}}
+}
+
+func removeManagedRuleset(repo string) job {
+	return setting("gh-tune branch ruleset", func(s *github.Snapshot) (entry, error) {
+		id, err := managedRulesetID(s)
+		if err != nil {
+			return entry{}, err
+		}
+		if id == 0 {
+			return match("no gh-tune ruleset"), nil
+		}
+		path := fmt.Sprintf("/rulesets/%d", id)
+		var rs struct {
+			Name, Target, Enforcement, Source string
+			SourceType                        string `json:"source_type"`
+			Conditions                        object
+			Bypass                            *[]object `json:"bypass_actors"`
+			Rules                             []rule
+		}
+		if err = s.Get(path, &rs); err != nil {
+			return entry{}, err
+		}
+		if rs.SourceType != "Repository" || !strings.EqualFold(rs.Source, repo) || rs.Name != rulesetName || rs.Target != "branch" || rs.Enforcement != "active" || encode(rs.Conditions) != encode(defaultBranchCondition()) || rs.Bypass == nil || len(*rs.Bypass) != 0 || len(rs.Rules) == 0 {
+			return blocked("reserved ruleset has customized or unreadable settings; review it on GitHub"), nil
+		}
+		var labels []string
+		for _, r := range rs.Rules {
+			if !generatedRule(r) {
+				return blocked("reserved ruleset contains custom protection; review it on GitHub"), nil
+			}
+			label := r.Type
+			if r.Type == "pull_request" {
+				label += fmt.Sprintf(" (%v approvals)", r.Parameters["required_approving_review_count"])
+			}
+			labels = append(labels, label)
+		}
+		e := change(fmt.Sprintf("remove %q (#%d): %s", rulesetName, id, strings.Join(labels, ", ")), "DELETE", path, nil)
+		e.guard += encode(rs.Rules)
+		return e, nil
+	})
+}
+
+// Only remove rules the extension can create, including GitHub's normalized defaults.
+func generatedRule(r rule) bool {
+	switch r.Type {
+	case "deletion", "non_fast_forward":
+		return len(r.Parameters) == 0
+	case "pull_request":
+		if n, ok := r.Parameters["required_approving_review_count"].(float64); !ok || n < 0 || n > 10 || n != float64(int(n)) {
+			return false
+		}
+		for k, v := range r.Parameters {
+			switch k {
+			case "required_approving_review_count":
+			case "require_code_owner_review", "dismiss_stale_reviews_on_push", "require_last_push_approval", "required_review_thread_resolution", "require_extra_approval_for_unattributed_changes":
+				if v != false {
+					return false
+				}
+			case "allowed_merge_methods":
+				var methods []string
+				raw, ok := v.([]any)
+				if !ok {
+					return false
+				}
+				for _, m := range raw {
+					name, ok := m.(string)
+					if !ok {
+						return false
+					}
+					methods = append(methods, name)
+				}
+				slices.Sort(methods)
+				if !slices.Equal(methods, []string{"merge", "rebase", "squash"}) {
+					return false
+				}
+			case "dismissal_restriction":
+				if encode(v) != encode(object{"enabled": false, "allowed_actors": []string{}}) {
+					return false
+				}
+			case "required_reviewers":
+				if encode(v) != "[]" {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
 }

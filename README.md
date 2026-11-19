@@ -17,13 +17,27 @@ Dry-run is the default. It reads the current settings, shows proposed changes, a
 
 | Profile | Default branch | Repository files |
 | --- | --- | --- |
+| [default](internal/profile/profiles/default.yaml) | Remove the standard gh-tune ruleset | Settings only |
 | [solo](internal/profile/profiles/solo.yaml) | Protect against force pushes and deletion. Direct commits are fine. | Settings only |
 | [team](internal/profile/profiles/team.yaml) | Also require a PR and one approval. | Starter PR template |
 | [opensource](internal/profile/profiles/opensource.yaml) | Same review requirements as team. | Starter issue and PR templates |
 
-All three enable merge commits, preserve existing squash and rebase choices, delete merged branches, enable Issues, request Dependabot alerts and security updates, request secret scanning and push protection, and set the default workflow token to read. The opensource profile also enables Discussions and, on public repositories, private vulnerability reporting and maintainer approval for workflow runs from all external contributors.
+The solo, team, and opensource profiles enable merge commits, preserve existing squash and rebase choices, delete merged branches, enable Issues, request Dependabot alerts and security updates, request secret scanning and push protection, and set the default workflow token to read. The opensource profile also enables Discussions and, on public repositories, private vulnerability reporting and maintainer approval for workflow runs from all external contributors.
 
-Branch requirements are minimums. A branch already requiring two approvals satisfies a profile asking for one. Branch rules include any bypasses configured by the repository or organization. gh-tune adds missing protections in a repository ruleset named `gh-tune: default branch`. Reserve this name for the extension. Changing profiles keeps stronger protections. Wiki and Actions allowlists are opt-in.
+Branch requirements are minimums. A branch already requiring two approvals satisfies a profile asking for one. Branch rules include any bypasses configured by the repository or organization. gh-tune adds missing protections in a repository ruleset named `gh-tune: default branch`. Reserve this name for the extension. These three profiles keep stronger protections and leave Wiki and Actions allowlists opt-in.
+
+## Restore GitHub creation defaults
+
+```sh
+gh tune OWNER/REPO --profile default --dry-run
+gh tune OWNER/REPO --profile default --apply
+```
+
+`default` uses the baseline for a newly created standalone GitHub.com repository for the settings gh-tune manages. It enables merge, squash, and rebase, keeps merged branches, enables Issues and Wiki where supported, and disables Discussions. Existing files, PRs, classic branch protection, and other rulesets stay in place. The preview identifies the gh-tune ruleset by name and ID before removal. A customized ruleset with additional restrictions is reported for review.
+
+On a personal public repository, the profile keeps secret scanning and push protection on, turns Dependabot alerts, automatic security updates, and private vulnerability reporting off, allows all Actions, uses a read-only workflow token, and requires approval for first-time external contributors. These are stock settings. Personal account preferences for new repositories can differ. Applying `default` sets today's baseline, even for settings you changed before using gh-tune. [Public repository security defaults](https://github.blog/changelog/2024-03-11-secret-scanning-and-push-protection-are-enabled-by-default-on-new-public-repositories/) · [Personal security preferences](https://docs.github.com/en/account-and-profile/how-tos/account-settings/managing-security-and-analysis-features)
+
+For an organization, gh-tune reads the default security configuration for the repository visibility and the organization's Actions policies. If a policy is unreadable, that part is reported as blocked while independent settings can still be restored. [Organization security configurations](https://docs.github.com/en/rest/code-security/configurations#get-default-code-security-configurations-for-an-organization) · [Actions permissions](https://docs.github.com/en/rest/actions/permissions)
 
 ## Custom profiles
 
