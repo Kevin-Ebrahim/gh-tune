@@ -27,13 +27,55 @@ func plan(t *testing.T, c *github.Client, p profile.Profile) Plan {
 	}
 	return v
 }
+
+func serveContributionAccess(t *testing.T, w http.ResponseWriter, r *http.Request, state, wanted object) bool {
+	t.Helper()
+	var request struct {
+		Query     string
+		Variables object
+	}
+	if r.Method != "POST" || json.NewDecoder(r.Body).Decode(&request) != nil {
+		t.Error("expected a GraphQL POST")
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return false
+	}
+	query := strings.TrimSpace(request.Query)
+	if strings.HasPrefix(query, "query") {
+		if encode(request.Variables) != `{"name":"repo","owner":"owner"}` {
+			t.Errorf("unexpected repository lookup: %v", request.Variables)
+		}
+		json.NewEncoder(w).Encode(object{"data": object{"repository": state}})
+		return false
+	}
+	expected := object{"repositoryId": state["id"]}
+	for key, value := range wanted {
+		expected[key] = value
+	}
+	if !strings.HasPrefix(query, "mutation") || encode(request.Variables["input"]) != encode(expected) {
+		t.Errorf("unexpected repository update: %v", request.Variables)
+		http.Error(w, "unexpected update", http.StatusBadRequest)
+		return true
+	}
+	for key, value := range wanted {
+		state[key] = value
+	}
+	json.NewEncoder(w).Encode(object{"data": object{"updateRepository": object{"repository": object{"id": state["id"]}}}})
+	return true
+}
+
 func TestSoloConvergesPreservingStrongerRules(t *testing.T) {
-	repo := object{"default_branch": "trunk", "allow_merge_commit": false, "allow_squash_merge": true, "delete_branch_on_merge": false, "has_issues": true, "security_and_analysis": object{"secret_scanning": object{"status": "enabled"}, "secret_scanning_push_protection": object{"status": "enabled"}}}
+	repo := object{"default_branch": "trunk", "allow_merge_commit": false, "allow_squash_merge": true, "delete_branch_on_merge": false, "has_issues": false, "security_and_analysis": object{"secret_scanning": object{"status": "enabled"}, "secret_scanning_push_protection": object{"status": "enabled"}}}
+	access := object{"id": "repo-id", "hasIssuesEnabled": false, "hasPullRequestsEnabled": false, "issueCreationPolicy": "ALL", "pullRequestCreationPolicy": "ALL"}
+	restricted := object{"hasIssuesEnabled": true, "hasPullRequestsEnabled": true, "issueCreationPolicy": "COLLABORATORS_ONLY", "pullRequestCreationPolicy": "COLLABORATORS_ONLY"}
 	var writes []string
 	c := server(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method + " " + r.URL.Path {
 		case "GET /":
 			json.NewEncoder(w).Encode(repo)
+		case "POST /graphql":
+			if serveContributionAccess(t, w, r, access, restricted) {
+				writes = append(writes, "contribution access")
+			}
 		case "GET /vulnerability-alerts":
 			w.WriteHeader(204)
 		case "GET /automated-security-fixes":
@@ -60,10 +102,13 @@ func TestSoloConvergesPreservingStrongerRules(t *testing.T) {
 	if before.Exit(true) != 2 || len(writes) != 0 {
 		t.Fatal("unsafe or inaccurate dry run")
 	}
+	if !slices.Contains(before.Results(), Result{"CHANGE", "Issue and PR access", "Issues disabled (anyone), PRs disabled (anyone) → Issues enabled (collaborators only), PRs enabled (collaborators only)"}) {
+		t.Fatal(before.Results())
+	}
 	if got := before.Apply(t.Context(), c); got.Exit(true) != 0 {
 		t.Fatal(got.items)
 	}
-	if got := plan(t, c, p).Apply(t.Context(), c); got.Exit(true) != 0 || !slices.Equal(writes, []string{"allow_merge_commit", "delete_branch_on_merge"}) {
+	if got := plan(t, c, p).Apply(t.Context(), c); got.Exit(true) != 0 || !slices.Equal(writes, []string{"allow_merge_commit", "contribution access", "delete_branch_on_merge"}) {
 		t.Fatal(writes, got.items)
 	}
 }

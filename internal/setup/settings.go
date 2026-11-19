@@ -32,10 +32,14 @@ func settings(p profile.Profile) []job {
 	if len(methods) > 0 {
 		jobs = append(jobs, projection("Merge methods", "", "PATCH", methods))
 	}
+	if r.IssueCreationPolicy != "" || r.PullRequestCreationPolicy != "" {
+		jobs = append(jobs, contributionAccess(r.Issues, r.PullRequests, r.IssueCreationPolicy, r.PullRequestCreationPolicy))
+		r.Issues, r.PullRequests = nil, nil
+	}
 	for _, f := range []struct {
 		label, key string
 		v          *bool
-	}{{"Delete branches after merge", "delete_branch_on_merge", r.DeleteBranchOnMerge}, {"Issues", "has_issues", r.Issues}, {"Wiki", "has_wiki", r.Wiki}, {"Discussions", "has_discussions", r.Discussions}} {
+	}{{"Delete branches after merge", "delete_branch_on_merge", r.DeleteBranchOnMerge}, {"Issues", "has_issues", r.Issues}, {"Pull requests", "has_pull_requests", r.PullRequests}, {"Wiki", "has_wiki", r.Wiki}, {"Discussions", "has_discussions", r.Discussions}} {
 		if f.v != nil {
 			jobs = append(jobs, projection(f.label, "", "PATCH", object{f.key: *f.v}))
 		}

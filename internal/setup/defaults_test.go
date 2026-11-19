@@ -24,7 +24,15 @@ func TestDefaultRestoresSoloAndConverges(t *testing.T) {
 	var writes []string
 	alerts, updates, managed := true, true, true
 	repo := object{"owner": object{"type": "User", "login": "owner"}, "visibility": "public", "allow_merge_commit": true, "allow_rebase_merge": true, "allow_squash_merge": true, "delete_branch_on_merge": true, "has_wiki": true, "has_issues": true, "has_discussions": false, "permissions": object{"admin": true}, "security_and_analysis": object{"secret_scanning": object{"status": "enabled"}, "secret_scanning_push_protection": object{"status": "enabled"}}}
+	access := object{"id": "repo-id", "hasIssuesEnabled": true, "hasPullRequestsEnabled": true, "issueCreationPolicy": "COLLABORATORS_ONLY", "pullRequestCreationPolicy": "COLLABORATORS_ONLY"}
+	defaultAccess := object{"hasIssuesEnabled": true, "hasPullRequestsEnabled": true, "issueCreationPolicy": "ALL", "pullRequestCreationPolicy": "ALL"}
 	c := server(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/graphql" {
+			if serveContributionAccess(t, w, r, access, defaultAccess) {
+				writes = append(writes, "POST /graphql")
+			}
+			return
+		}
 		if r.Method != "GET" {
 			writes = append(writes, r.Method+" "+r.URL.Path)
 		}
@@ -100,7 +108,7 @@ func TestDefaultRestoresSoloAndConverges(t *testing.T) {
 	if result := plan(t, c, p).Apply(t.Context(), c); result.Exit(true) != 0 {
 		t.Fatal(result.items)
 	}
-	if !slices.Equal(writes, []string{"PATCH /", "DELETE /automated-security-fixes", "DELETE /vulnerability-alerts", "DELETE /rulesets/9"}) {
+	if !slices.Equal(writes, []string{"POST /graphql", "PATCH /", "DELETE /automated-security-fixes", "DELETE /vulnerability-alerts", "DELETE /rulesets/9"}) {
 		t.Fatal(writes)
 	}
 }

@@ -25,6 +25,9 @@ type Profile struct {
 		MergeMethods              []string `yaml:"merge_methods"`
 		DeleteBranchOnMerge       *bool    `yaml:"delete_branch_on_merge"`
 		Issues, Wiki, Discussions *bool
+		PullRequests              *bool  `yaml:"pull_requests"`
+		IssueCreationPolicy       string `yaml:"issue_creation_policy"`
+		PullRequestCreationPolicy string `yaml:"pull_request_creation_policy"`
 	}
 	Security struct {
 		DependabotAlerts  *bool `yaml:"dependabot_alerts"`
@@ -111,6 +114,10 @@ func (p Profile) validate() error {
 	}
 	if r.EnableMergeCommit != nil && !*r.EnableMergeCommit {
 		return fmt.Errorf("use merge_methods to disable a merge method")
+	}
+	if !oneOf(r.IssueCreationPolicy, "", "all", "collaborators_only") ||
+		!oneOf(r.PullRequestCreationPolicy, "", "all", "collaborators_only") {
+		return fmt.Errorf("creation policies must be all or collaborators_only")
 	}
 	b := p.Branch
 	if b != nil {

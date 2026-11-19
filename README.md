@@ -23,12 +23,14 @@ Settings take effect immediately. If the profile calls for missing files, gh-tun
 
 | Profile | What it does |
 | --- | --- |
-| [solo](internal/profile/profiles/solo.yaml) | Blocks force pushes and deletion on the default branch. Allows direct commits if existing rules permit them. |
-| [team](internal/profile/profiles/team.yaml) | Uses the `solo` settings and requires a pull request with at least one approval. Proposes a pull request template. |
+| [solo](internal/profile/profiles/solo.yaml) | Restricts new issues and pull requests to collaborators. Blocks force pushes and deletion on the default branch. Allows direct commits if existing rules permit them. |
+| [team](internal/profile/profiles/team.yaml) | Protects the default branch and requires a pull request with at least one approval. Proposes a pull request template. |
 | [opensource](internal/profile/profiles/opensource.yaml) | Extends `team` with an issue template and Discussions. On public repositories, it also enables private vulnerability reporting and requires approval for workflow runs from all external contributors. |
 | [default](internal/profile/profiles/default.yaml) | Applies GitHub's creation defaults to the settings gh-tune manages, even if you changed them before installing it. |
 
 `solo`, `team`, and `opensource` also enable merge commits and Issues, delete merged branches, and set the default workflow token to read-only. They request Dependabot alerts and security updates, secret scanning, and push protection. Stronger branch rules still apply.
+
+On a personal repository with no collaborators, `solo` limits new issues and pull requests to the owner. GitHub also allows collaborators with write access to create them.
 
 Preview `default` before applying it. Defaults depend on the owner, visibility, and organization policies. This profile can remove the `gh-tune: default branch` ruleset. It flags customized rulesets with that name for review and keeps other rulesets and existing files.
 

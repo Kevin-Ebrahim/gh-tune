@@ -3,6 +3,9 @@ repository:
   enable_merge_commit: true
   delete_branch_on_merge: true
   issues: true
+  pull_requests: true
+  issue_creation_policy: collaborators_only
+  pull_request_creation_policy: collaborators_only
 security:
   dependabot_alerts: true
   dependabot_security_updates: true

@@ -28,6 +28,9 @@ func creationDefaults(s *github.Snapshot, r repositoryContext, target string) []
 	p.Repository.MergeMethods = []string{"merge", "squash", "rebase"}
 	p.Repository.DeleteBranchOnMerge = new(false)
 	p.Repository.Issues = new(true)
+	p.Repository.PullRequests = new(true)
+	p.Repository.IssueCreationPolicy = "all"
+	p.Repository.PullRequestCreationPolicy = "all"
 	p.Repository.Discussions = new(false)
 	jobs := settings(p)
 	jobs = append(jobs, defaultWiki(r))

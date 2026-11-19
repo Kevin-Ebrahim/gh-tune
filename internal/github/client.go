@@ -96,6 +96,42 @@ func (c *Client) Write(ctx context.Context, method, path string, body, out any) 
 	return nil
 }
 
+func (c *Client) GraphQL(ctx context.Context, query string, variables map[string]any, out any) error {
+	body := map[string]any{"query": query, "variables": variables}
+	raw, err := c.request(ctx, "POST", c.apiBase(), "/graphql", body)
+	if err != nil {
+		return err
+	}
+	var result struct {
+		Data   json.RawMessage
+		Errors []struct{ Message, Type string }
+	}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return err
+	}
+	if len(result.Errors) != 0 {
+		messages := make([]string, 0, len(result.Errors))
+		limited := false
+		for _, graphqlError := range result.Errors {
+			messages = append(messages, graphqlError.Message)
+			limited = limited || graphqlError.Type == "RATE_LIMITED"
+		}
+		err := fmt.Errorf("GitHub GraphQL: %s", strings.Join(messages, "; "))
+		if limited {
+			c.stopped = err
+		}
+		return err
+	}
+	if out != nil {
+		return json.Unmarshal(result.Data, out)
+	}
+	return nil
+}
+
+func (c *Client) apiBase() string {
+	return strings.TrimSuffix(c.Base, "/repos/"+c.Repo)
+}
+
 // Snapshot caches observations for one planning pass only.
 type Snapshot struct {
 	ctx   context.Context
@@ -116,7 +152,12 @@ func (s *Snapshot) Get(path string, out any) error {
 
 // GetOwnerDefaults reads account or organization policy from the same GitHub API origin.
 func (s *Snapshot) GetOwnerDefaults(path string, out any) error {
-	return s.read(strings.TrimSuffix(s.c.Base, "/repos/"+s.c.Repo), path, out)
+	return s.read(s.c.apiBase(), path, out)
+}
+
+func (s *Snapshot) QueryRepository(query string, out any) error {
+	owner, name, _ := strings.Cut(s.c.Repo, "/")
+	return s.c.GraphQL(s.ctx, query, map[string]any{"owner": owner, "name": name}, out)
 }
 func (s *Snapshot) read(base, path string, out any) error {
 	key := base + path
